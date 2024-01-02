@@ -1,0 +1,20 @@
+{
+	"folders": [
+        {
+            "name": "web-scapper-app",
+            "path": "src/web-scrapper-app/"
+        },
+        {
+            "name": "aisearch",
+            "path": "src/aisearch"
+        },
+        {
+            "name": "infra",
+            "path": "infra"
+        }
+    ],
+	"settings": {
+        "explorer.expandSingleFolderWorkspaces": true,
+        "debug.internalConsoleOptions": "neverOpen"
+	}
+}

@@ -77,8 +77,6 @@ def simple_web_scraper_app(myTimer: func.TimerRequest) -> None:
     blob_service_client = get_blob_service_client(
         storage_account_name, storage_account_key, False
     )
-    logging.info(f"Created blob_service_client {blob_service_client}.")
-
     # Get the sitemap
     urls = get_sitemap_urls(url)
 
@@ -86,14 +84,13 @@ def simple_web_scraper_app(myTimer: func.TimerRequest) -> None:
     for sub_url, lastmod in urls:
         # Retrieve the text
         text = crawl_url(sub_url)
-        logging.info(f"Finished crawling through {sub_url}.")
+        logging.info(f"DONE crawling through {sub_url}.")
 
         # Format blob name with the lastmod timestamp
         blob_name = get_blob_name(url, sub_url, lastmod, folder_name=project_code)
         logging.info(f"blob_name={blob_name}.")
         # Create a blob client
         blob_client = get_blob_client(blob_service_client, container_name, blob_name)
-        logging.info(f"Created blob_client {blob_client}.")
         # Upload the text to Azure Blob Storage
         blob_client.upload_blob(text, overwrite=True)
         logging.info(
@@ -102,4 +99,4 @@ def simple_web_scraper_app(myTimer: func.TimerRequest) -> None:
             f"Waiting for {wait_time} seconds...",
         )
         time.sleep(int(wait_time))
-    logging.info("Python timer trigger function executed.")
+    logging.info("Python timer trigger function FINISHED.")
