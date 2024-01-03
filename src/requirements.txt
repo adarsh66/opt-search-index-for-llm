@@ -3,4 +3,7 @@
 # Manually managing azure-functions-worker may cause unexpected issues
 
 azure-functions
-requests
+azure-functions-durable
+beautifulsoup4
+azure-storage-blob
+lxml
