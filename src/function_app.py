@@ -15,13 +15,20 @@ CONTAINER_NAME = os.getenv("STORAGE_CONTAINER_NAME")
 STORAGE_CONNECTION = os.getenv("STORAGE_CONNECTION")
 SEARCH_SERVICE = os.getenv("SEARCH_SERVICE_NAME")
 SEARCH_API_KEY = os.getenv("SEARCH_API_KEY")
-SEARCH_INDEX = os.getenv("SEARCH_INDEX_NAME")
-SEARCH_INDEXER = os.getenv("SEARCH_INDEXER_NAME")
+SEARCH_INDEX_NAME = os.getenv("SEARCH_INDEX_NAME")
+SEARCH_INDEXER_NAME = os.getenv("SEARCH_INDEXER_NAME")
+SEARCH_INDEXER_BATCH_SIZE = os.getenv("SEARCH_INDEXER_BATCH_SIZE")
 SEARCH_DATASOURCE_NAME = os.getenv("SEARCH_DATASOURCE_NAME")
+VECTOR_SKILLSET_NAME = os.getenv("VECTOR_SKILLSET_NAME")
+VECTOR_INDEX_NAME = os.getenv("VECTOR_INDEX_NAME")
+VECTOR_EMBEDDING_URI = os.getenv("VECTOR_EMBEDDING_URI")
+VECTOR_EMBEDDING_KEY = os.getenv("VECTOR_EMBEDDING_KEY")
+VECTOR_EMBEDDING_ID = os.getenv("VECTOR_EMBEDDING_ID")
+VECTOR_EMBEDDING_DIMENSION = os.getenv("VECTOR_EMBEDDING_DIMENSION")
 
 
 @app.schedule(
-    schedule="* * 10 * * *", arg_name="myTimer", run_on_startup=True, use_monitor=False
+    schedule="0 0 10 * * *", arg_name="myTimer", run_on_startup=True, use_monitor=False
 )
 @app.durable_client_input(client_name="client")
 async def web_scraper_trigger(
@@ -59,6 +66,7 @@ def web_scraper_orchestrator(context: df.DurableOrchestrationContext) -> list:
     logging.info(f"Number of URLs to crawl: {len(task_list)}")
 
     logging.info("STARTING crawling of the website.")
+    results = []
     parallel_tasks = [
         context.call_activity("web_scraper_activity", task) for task in task_list
     ]
@@ -66,7 +74,7 @@ def web_scraper_orchestrator(context: df.DurableOrchestrationContext) -> list:
 
     logging.info("CRAWLING of the website COMPLETED.")
 
-    yield context.call_activity("search_index_runner", "search")
+    yield context.call_activity("search_index_runner", "vector")
 
     logging.info("Python orchestrator function completed.")
     return results
@@ -102,17 +110,36 @@ def search_index_runner(indextype: str) -> bool:
         search_indexer = AISearchIndexer(
             search_service=SEARCH_SERVICE,
             data_source_name=SEARCH_DATASOURCE_NAME,
-            index_name=f"{SEARCH_INDEX}-{indextype}",
-            indexer_name=f"{SEARCH_INDEXER}-{indextype}",
+            search_index_name=SEARCH_INDEX_NAME,
+            vector_index_name=VECTOR_INDEX_NAME,
+            indexer_name=SEARCH_INDEXER_NAME,
+            vector_skillset_name=VECTOR_SKILLSET_NAME,
             api_key=SEARCH_API_KEY,
         )
         search_indexer.create_data_source_blob_storage(
             STORAGE_CONNECTION, CONTAINER_NAME
         )
-        search_indexer.create_index(index_type=indextype)
-        search_indexer.create_indexer()
-        logging.info("INDEXING of the crawled data COMPLETED.")
+        search_indexer.create_index(index_type="search")
+        search_indexer.create_index(
+            index_type="vector",
+            model_uri=VECTOR_EMBEDDING_URI,
+            model_name=VECTOR_EMBEDDING_ID,
+            model_api_key=VECTOR_EMBEDDING_KEY,
+            embedding_dims=VECTOR_EMBEDDING_DIMENSION,
+        )
+        search_indexer.create_skillset(
+            model_uri=VECTOR_EMBEDDING_URI,
+            model_name=VECTOR_EMBEDDING_ID,
+            model_api_key=VECTOR_EMBEDDING_KEY,
+        )
+        search_indexer.create_indexer(
+            cache_storage_connection=STORAGE_CONNECTION,
+            batch_size=SEARCH_INDEXER_BATCH_SIZE,
+        )
+        logging.info("Create/ Update of Index of the crawled data COMPLETED.")
         return True
     except Exception as e:
-        logging.error("INDEXING of the crawled data FAILED. Error: %s", e)
+        logging.error(
+            "Create/ Update of Index of the crawled data FAILED. Error: %s", e
+        )
         return False
