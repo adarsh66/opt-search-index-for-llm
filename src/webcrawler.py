@@ -45,7 +45,8 @@ class WebCrawler:
         if parser_lib == "bs4":
             return self.parse_html_bs4(html)
         elif parser_lib == "html2text":
-            return self.parse_html_html2text(html)
+            html_text = self.parse_html_bs4(html)
+            return self.parse_html_html2text(html_text).strip()
         else:
             raise ValueError("Parser library not supported.")
 
@@ -56,7 +57,7 @@ class WebCrawler:
         response = requests.get(sub_url)
 
         # Parse the HTML content using specified parser library
-        content = self.parse_html(response.content, parser_lib="html2text")
+        content = self.parse_html(response.content, parser_lib=parser_lib)
 
         # Create a blob client
         blob_client = self.get_blob_client(

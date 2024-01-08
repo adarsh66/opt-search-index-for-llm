@@ -11,6 +11,7 @@ app = df.DFApp(http_auth_level=func.AuthLevel.ANONYMOUS)
 
 URL = os.getenv("PROJECT_URL")
 PROJECT_NAME = os.getenv("PROJECT_NAME")
+SAMPLE_SIZE = int(os.getenv("SAMPLE_SIZE"))
 CONTAINER_NAME = os.getenv("STORAGE_CONTAINER_NAME")
 STORAGE_CONNECTION = os.getenv("STORAGE_CONNECTION")
 SEARCH_SERVICE = os.getenv("SEARCH_SERVICE_NAME")
@@ -22,7 +23,7 @@ SEARCH_DATASOURCE_NAME = os.getenv("SEARCH_DATASOURCE_NAME")
 VECTOR_SKILLSET_NAME = os.getenv("VECTOR_SKILLSET_NAME")
 VECTOR_INDEX_NAME = os.getenv("VECTOR_INDEX_NAME")
 VECTOR_EMBEDDING_URI = os.getenv("VECTOR_EMBEDDING_URI")
-VECTOR_EMBEDDING_KEY = os.getenv("VECTOR_EMBEDDING_KEY")
+VECTOR_EMBEDDING_API_KEY = os.getenv("VECTOR_EMBEDDING_API_KEY")
 VECTOR_EMBEDDING_ID = os.getenv("VECTOR_EMBEDDING_ID")
 VECTOR_EMBEDDING_DIMENSION = os.getenv("VECTOR_EMBEDDING_DIMENSION")
 
@@ -63,6 +64,7 @@ def web_scraper_orchestrator(context: df.DurableOrchestrationContext) -> list:
 
     logging.info(f"Gettnig URLs from sitemap: {URL}/sitemap.xml")
     task_list = get_sitemap_urls(url=URL)
+    task_list = task_list[:SAMPLE_SIZE] if SAMPLE_SIZE > 0 else task_list
     logging.info(f"Number of URLs to crawl: {len(task_list)}")
 
     logging.info("STARTING crawling of the website.")
@@ -116,27 +118,43 @@ def search_index_runner(indextype: str) -> bool:
             vector_skillset_name=VECTOR_SKILLSET_NAME,
             api_key=SEARCH_API_KEY,
         )
-        search_indexer.create_data_source_blob_storage(
-            STORAGE_CONNECTION, CONTAINER_NAME
+
+        # Step 1 - Create the Data Source
+        response = search_indexer.create_data_source_blob_storage(
+            blob_connection=STORAGE_CONNECTION,
+            blob_container_name=CONTAINER_NAME,
+            query=PROJECT_NAME,
         )
-        search_indexer.create_index(index_type="search")
-        search_indexer.create_index(
+        logging.info(f"Search Data Source status = {response}.")
+
+        # Step 2 - Create the Keyword Index
+        response = search_indexer.create_index(index_type="search")
+        logging.info(f"Keyword Search Index status = {response}.")
+
+        # Step 3 - Create the Vector Index (with embedding model)
+        response = search_indexer.create_index(
             index_type="vector",
             model_uri=VECTOR_EMBEDDING_URI,
             model_name=VECTOR_EMBEDDING_ID,
-            model_api_key=VECTOR_EMBEDDING_KEY,
+            model_api_key=VECTOR_EMBEDDING_API_KEY,
             embedding_dims=VECTOR_EMBEDDING_DIMENSION,
         )
-        search_indexer.create_skillset(
+        logging.info(f"Vector Search Index status = {response}.")
+
+        # Step 4 - Create the Vector embedding skillset to enhance the indexer
+        response = search_indexer.create_skillset(
             model_uri=VECTOR_EMBEDDING_URI,
             model_name=VECTOR_EMBEDDING_ID,
-            model_api_key=VECTOR_EMBEDDING_KEY,
+            model_api_key=VECTOR_EMBEDDING_API_KEY,
         )
-        search_indexer.create_indexer(
+        logging.info(f"Vector Skillset status = {response}.")
+
+        # Step 5 - Create the indexer which will ultimately call the vector embedding skillset
+        response = search_indexer.create_indexer(
             cache_storage_connection=STORAGE_CONNECTION,
             batch_size=SEARCH_INDEXER_BATCH_SIZE,
         )
-        logging.info("Create/ Update of Index of the crawled data COMPLETED.")
+        logging.info(f"Search Indexer status = {response}")
         return True
     except Exception as e:
         logging.error(

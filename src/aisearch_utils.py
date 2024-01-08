@@ -1,5 +1,6 @@
 import requests
 import uuid
+import logging
 
 
 class AISearchIndexer:
@@ -12,7 +13,7 @@ class AISearchIndexer:
         indexer_name,
         vector_skillset_name,
         api_key,
-        api_version="2023-10-01",
+        api_version="2023-10-01-Preview",
     ):
         self.search_service = search_service
         self.data_source_name = data_source_name
@@ -51,210 +52,213 @@ class AISearchIndexer:
             "type": "azureblob",
             "credentials": {"connectionString": blob_connection},
             "container": {"name": blob_container_name, "query": query},
-            "dataChangeDetectionPolicy": {
+            "dataChangeDetectionPolicy": None,
+            "dataDeletionDetectionPolicy": {
                 "@odata.type": "#Microsoft.Azure.Search.NativeBlobSoftDeleteDeletionDetectionPolicy"
             },
         }
         response = requests.post(
-            f"https://{self.search_service}.search.windows.net/datasources?{self.api_version}",
+            f"https://{self.search_service}.search.windows.net/datasources?api-version={self.api_version}",
             headers=self.headers,
             json=data_source_payload,
         )
-        if response.status_code == 200:
+        if response.status_code == 201:
             self.data_source = response.json()
             return True
         else:
+            logging.error(f"{response.status_code} || {response.json()}")
             return False
 
     def check_data_source_exists(self):
         response = requests.get(
-            f"https://{self.search_service}.search.windows.net/datasources/{self.data_source_name}?{self.api_version}",
+            f"https://{self.search_service}.search.windows.net/datasources('{self.data_source_name}')?api-version={self.api_version}",
+            headers=self.headers,
+        )
+        return response.status_code == 200
+
+    def check_index_exists(self, index_name):
+        response = requests.get(
+            f"https://{self.search_service}.search.windows.net/indexes('{index_name}')?api-version={self.api_version}",
             headers=self.headers,
         )
         return response.status_code == 200
 
     def create_search_index_payload(self):
-        if self.check_data_source_exists():
-            index_payload = {
-                "name": self.index_name,
-                "fields": [
-                    {
-                        "name": "id",
-                        "type": "Edm.String",
-                        "key": True,
-                        "searchable": True,
-                    },
-                    {
-                        "name": "content",
-                        "type": "Edm.String",
-                        "retrievable": True,
-                        "searchable": True,
-                        "filterable": False,
-                        "sortable": False,
-                        "facetable": False,
-                    },
-                    {
-                        "name": "metadata_storage_path",
-                        "type": "Edm.String",
-                        "retrievable": True,
-                        "searchable": False,
-                        "filterable": True,
-                        "sortable": False,
-                        "facetable": False,
-                    },
-                    {
-                        "name": "metadata_storage_name",
-                        "type": "Edm.String",
-                        "searchable": False,
-                        "filterable": True,
-                        "sortable": True,
-                    },
-                    {
-                        "name": "metadata_storage_size",
-                        "type": "Edm.Int64",
-                        "searchable": False,
-                        "filterable": True,
-                        "sortable": True,
-                    },
-                    {
-                        "name": "metadata_storage_content_type",
-                        "type": "Edm.String",
-                        "searchable": False,
-                        "filterable": True,
-                        "sortable": True,
-                    },
-                ],
-            }
-            return index_payload
-        else:
-            return False
+        index_payload = {
+            "name": self.search_index_name,
+            "fields": [
+                {
+                    "name": "id",
+                    "type": "Edm.String",
+                    "key": True,
+                    "searchable": True,
+                },
+                {
+                    "name": "content",
+                    "type": "Edm.String",
+                    "retrievable": True,
+                    "searchable": True,
+                    "filterable": False,
+                    "sortable": False,
+                    "facetable": False,
+                },
+                {
+                    "name": "metadata_storage_path",
+                    "type": "Edm.String",
+                    "retrievable": True,
+                    "searchable": False,
+                    "filterable": True,
+                    "sortable": False,
+                    "facetable": False,
+                },
+                {
+                    "name": "metadata_storage_name",
+                    "type": "Edm.String",
+                    "searchable": False,
+                    "filterable": True,
+                    "sortable": True,
+                },
+                {
+                    "name": "metadata_storage_size",
+                    "type": "Edm.Int64",
+                    "searchable": False,
+                    "filterable": True,
+                    "sortable": True,
+                },
+                {
+                    "name": "metadata_storage_content_type",
+                    "type": "Edm.String",
+                    "searchable": False,
+                    "filterable": True,
+                    "sortable": True,
+                },
+            ],
+        }
+        return index_payload
 
     def create_vector_index_payload(
         self, model_uri, model_name, model_api_key, embedding_dims
     ):
-        if self.check_data_source_exists():
-            index_payload = {
-                "name": self.index_name,
-                "defaultScoringProfile": "",
-                "fields": [
+        index_payload = {
+            "name": self.vector_index_name,
+            "defaultScoringProfile": "",
+            "fields": [
+                {
+                    "name": "id",
+                    "type": "Edm.String",
+                    "searchable": True,
+                    "filterable": True,
+                    "retrievable": True,
+                    "sortable": False,
+                    "facetable": False,
+                    "key": True,
+                    "indexAnalyzer": None,
+                    "searchAnalyzer": None,
+                    "analyzer": "keyword",
+                },
+                {
+                    "name": "chunk",
+                    "type": "Edm.String",
+                    "searchable": True,
+                    "filterable": False,
+                    "retrievable": True,
+                    "sortable": False,
+                    "facetable": False,
+                    "key": False,
+                    "analyzer": "standard.lucene",
+                },
+                {
+                    "name": "parent_key",
+                    "type": "Edm.String",
+                    "searchable": False,
+                    "filterable": True,
+                    "retrievable": True,
+                    "sortable": False,
+                    "facetable": False,
+                    "key": False,
+                },
+                {
+                    "name": "embedding",
+                    "type": "Collection(Edm.Single)",
+                    "searchable": True,
+                    "filterable": False,
+                    "retrievable": True,
+                    "sortable": False,
+                    "facetable": False,
+                    "key": False,
+                    "dimensions": embedding_dims,
+                    "vectorSearchProfile": self.vector_search_profile,
+                    "synonymMaps": [],
+                },
+            ],
+            "scoringProfiles": [],
+            "corsOptions": None,
+            "suggesters": [],
+            "analyzers": [],
+            "normalizers": [],
+            "tokenizers": [],
+            "tokenFilters": [],
+            "charFilters": [],
+            "encryptionKey": None,
+            "similarity": {
+                "@odata.type": "#Microsoft.Azure.Search.BM25Similarity",
+                "k1": None,
+                "b": None,
+            },
+            "semantic": {
+                "defaultConfiguration": None,
+                "configurations": [
                     {
-                        "name": "id",
-                        "type": "Edm.String",
-                        "searchable": True,
-                        "filterable": True,
-                        "retrievable": True,
-                        "sortable": False,
-                        "facetable": False,
-                        "key": True,
-                        "indexAnalyzer": None,
-                        "searchAnalyzer": None,
-                        "analyzer": "keyword",
-                    },
-                    {
-                        "name": "chunk",
-                        "type": "Edm.String",
-                        "searchable": True,
-                        "filterable": False,
-                        "retrievable": True,
-                        "sortable": False,
-                        "facetable": False,
-                        "key": False,
-                        "analyzer": "standard.lucene",
-                    },
-                    {
-                        "name": "parent_key",
-                        "type": "Edm.String",
-                        "searchable": False,
-                        "filterable": True,
-                        "retrievable": True,
-                        "sortable": False,
-                        "facetable": False,
-                        "key": False,
-                    },
-                    {
-                        "name": "embedding",
-                        "type": "Collection(Edm.Single)",
-                        "searchable": True,
-                        "filterable": False,
-                        "retrievable": True,
-                        "sortable": False,
-                        "facetable": False,
-                        "key": False,
-                        "dimensions": embedding_dims,
-                        "vectorSearchProfile": self.vector_search_profile,
-                        "synonymMaps": [],
-                    },
+                        "name": self.semantic_config,
+                        "prioritizedFields": {
+                            "titleField": None,
+                            "prioritizedContentFields": [{"fieldName": "chunk"}],
+                            "prioritizedKeywordsFields": [
+                                {"fieldName": "id"},
+                                {"fieldName": "parent_key"},
+                            ],
+                        },
+                    }
                 ],
-                "scoringProfiles": [],
-                "corsOptions": None,
-                "suggesters": [],
-                "analyzers": [],
-                "normalizers": [],
-                "tokenizers": [],
-                "tokenFilters": [],
-                "charFilters": [],
-                "encryptionKey": None,
-                "similarity": {
-                    "@odata.type": "#Microsoft.Azure.Search.BM25Similarity",
-                    "k1": None,
-                    "b": None,
-                },
-                "semantic": {
-                    "defaultConfiguration": None,
-                    "configurations": [
-                        {
-                            "name": self.semantic_config,
-                            "prioritizedFields": {
-                                "titleField": None,
-                                "prioritizedContentFields": [{"fieldName": "chunk"}],
-                                "prioritizedKeywordsFields": [
-                                    {"fieldName": "id"},
-                                    {"fieldName": "parent_key"},
-                                ],
-                            },
-                        }
-                    ],
-                },
-                "vectorSearch": {
-                    "algorithms": [
-                        {
-                            "name": self.vector_search_config,
-                            "kind": "hnsw",
-                            "hnswParameters": {
-                                # use cosine similarity when using OpenAI models,
-                                # else use the distance metric of the embedding model
-                                "metric": "cosine",
-                                "m": 4,  # bi-directional link count
-                                "efConstruction": 400,  # number of nearest neighbors to consider during indexiing
-                                "efSearch": 500,  # number of nearest neighbors to consider during search
-                            },
-                            "exhaustiveKnnParameters": None,
-                        }
-                    ],
-                    "profiles": [
-                        {
-                            "name": self.vector_search_profile,
-                            "algorithm": self.vector_search_config,
-                            "vectorizer": self.vector_search_vectorizer,
-                        }
-                    ],
-                    "vectorizers": [
-                        {
-                            "name": self.vector_search_vectorizer,
-                            "kind": "azureOpenAI",
-                            "azureOpenAIParameters": {
-                                "resourceUri": model_uri,
-                                "deploymentId": model_name,
-                                "apiKey": model_api_key,
-                                "authIdentity": None,
-                            },
-                        }
-                    ],
-                },
-            }
-            return index_payload
-        else:
-            return False
+            },
+            "vectorSearch": {
+                "algorithms": [
+                    {
+                        "name": self.vector_search_config,
+                        "kind": "hnsw",
+                        "hnswParameters": {
+                            # use cosine similarity when using OpenAI models,
+                            # else use the distance metric of the embedding model
+                            "metric": "cosine",
+                            "m": 4,  # bi-directional link count
+                            "efConstruction": 400,  # number of nearest neighbors to consider during indexiing
+                            "efSearch": 500,  # number of nearest neighbors to consider during search
+                        },
+                        "exhaustiveKnnParameters": None,
+                    }
+                ],
+                "profiles": [
+                    {
+                        "name": self.vector_search_profile,
+                        "algorithm": self.vector_search_config,
+                        "vectorizer": self.vector_search_vectorizer,
+                    }
+                ],
+                "vectorizers": [
+                    {
+                        "name": self.vector_search_vectorizer,
+                        "kind": "azureOpenAI",
+                        "azureOpenAIParameters": {
+                            "resourceUri": model_uri,
+                            "deploymentId": model_name,
+                            "apiKey": model_api_key,
+                            "authIdentity": None,
+                        },
+                    }
+                ],
+            },
+        }
+        return index_payload
 
     def create_index(self, index_type="search", **kwargs):
         if self.check_data_source_exists():
@@ -263,12 +267,16 @@ class AISearchIndexer:
             elif index_type == "vector":
                 index_payload = self.create_vector_index_payload(**kwargs)
             response = requests.post(
-                f"https://{self.search_service}.search.windows.net/indexes?{self.api_version}",
+                f"https://{self.search_service}.search.windows.net/indexes?api-version={self.api_version}",
                 headers=self.headers,
                 json=index_payload,
             )
-            self.index = response.json()
-            return True
+            if response.status_code == 201:
+                self.index = response.json()
+                return True
+            else:
+                logging.error(f"{response.status_code} || {response.json()}")
+                return False
         else:
             return False
 
@@ -277,69 +285,77 @@ class AISearchIndexer:
         Create a skillset for the indexer
         This skillset will be used to enrich the content before indexing
         """
-        skillset_payload = {
-            "name": self.vector_skillset_name,
-            "description": "skills required for vector embedding creation processing",
-            "skills": [
-                {
-                    "@odata.type": "#Microsoft.Skills.Text.SplitSkill",
-                    "name": "text-chunking-skill",
-                    "description": "Skillset to describe the Text chunking required for vectorization",
-                    "context": "/document",
-                    "defaultLanguageCode": "en",
-                    "textSplitMode": "pages",
-                    "maximumPageLength": 2000,
-                    "pageOverlapLength": 500,
-                    "maximumPagesToTake": 0,
-                    "inputs": [{"name": "text", "source": "/document/content"}],
-                    "outputs": [{"name": "textItems", "targetName": "chunks"}],
-                },
-                {
-                    "@odata.type": "#Microsoft.Skills.Text.AzureOpenAIEmbeddingSkill",
-                    "name": "embedding-generation-skill",
-                    "description": "",
-                    "context": "/document/chunks/*",
-                    "resourceUri": model_uri,
-                    "apiKey": model_api_key,
-                    "deploymentId": model_name,
-                    "inputs": [{"name": "text", "source": "/document/chunks/*"}],
-                    "outputs": [{"name": "embedding", "targetName": "embedding"}],
-                },
-            ],
-            "indexProjections": {
-                "selectors": [
+        if self.vector_skillset_name:
+            skillset_payload = {
+                "name": self.vector_skillset_name,
+                "description": "skills required for vector embedding creation processing",
+                "skills": [
                     {
-                        "targetIndexName": self.vector_index_name,
-                        "parentKeyFieldName": "parent_key",
-                        "sourceContext": "/document/chunks/*",
-                        "mappings": [
-                            {
-                                "name": "chunk",
-                                "source": "/document/chunks/*",
-                                "sourceContext": None,
-                                "inputs": [],
-                            },
-                            {
-                                "name": "embedding",
-                                "source": "/document/chunks/*/embedding",
-                                "sourceContext": None,
-                                "inputs": [],
-                            },
-                        ],
-                    }
+                        "@odata.type": "#Microsoft.Skills.Text.SplitSkill",
+                        "name": "text-chunking-skill",
+                        "description": "Skillset to describe the Text chunking required for vectorization",
+                        "context": "/document",
+                        "defaultLanguageCode": "en",
+                        "textSplitMode": "pages",
+                        "maximumPageLength": 2000,
+                        "pageOverlapLength": 500,
+                        "maximumPagesToTake": 0,
+                        "inputs": [{"name": "text", "source": "/document/content"}],
+                        "outputs": [{"name": "textItems", "targetName": "chunks"}],
+                    },
+                    {
+                        "@odata.type": "#Microsoft.Skills.Text.AzureOpenAIEmbeddingSkill",
+                        "name": "embedding-generation-skill",
+                        "description": "",
+                        "context": "/document/chunks/*",
+                        "resourceUri": model_uri,
+                        "apiKey": model_api_key,
+                        "deploymentId": model_name,
+                        "inputs": [{"name": "text", "source": "/document/chunks/*"}],
+                        "outputs": [{"name": "embedding", "targetName": "embedding"}],
+                    },
                 ],
-                "parameters": {},
-            },
-        }
-        response = requests.post(
-            f"https://{self.search_service}.search.windows.net/skillsets?{self.api_version}",
-            headers=self.headers,
-            json=skillset_payload,
-        )
-        self.skillset = response.json()
+                "indexProjections": {
+                    "selectors": [
+                        {
+                            "targetIndexName": self.vector_index_name,
+                            "parentKeyFieldName": "parent_key",
+                            "sourceContext": "/document/chunks/*",
+                            "mappings": [
+                                {
+                                    "name": "chunk",
+                                    "source": "/document/chunks/*",
+                                    "sourceContext": None,
+                                    "inputs": [],
+                                },
+                                {
+                                    "name": "embedding",
+                                    "source": "/document/chunks/*/embedding",
+                                    "sourceContext": None,
+                                    "inputs": [],
+                                },
+                            ],
+                        }
+                    ],
+                    "parameters": {},
+                },
+            }
+            response = requests.post(
+                f"https://{self.search_service}.search.windows.net/skillsets?api-version={self.api_version}",
+                headers=self.headers,
+                json=skillset_payload,
+            )
+            if response.status_code == 201:
+                self.skillset = response.json()
+                return True
+            else:
+                logging.error(f"{response.status_code} || {response.json()}")
+                return False
 
     def create_indexer(self, cache_storage_connection, batch_size=100):
-        if self.index:
+        if self.check_index_exists(self.search_index_name) and self.check_index_exists(
+            self.vector_index_name
+        ):
             indexer_payload = {
                 "name": self.indexer_name,
                 "description": "Indexer for Azure Blob storage container",
@@ -361,11 +377,15 @@ class AISearchIndexer:
                 },
             }
             response = requests.post(
-                f"https://{self.search_service}.search.windows.net/indexers?{self.api_version}",
+                f"https://{self.search_service}.search.windows.net/indexers?api-version={self.api_version}",
                 headers=self.headers,
                 json=indexer_payload,
             )
-            self.indexer = response.json()
-            return True
+            if response.status_code == 201:
+                self.indexer = response.json()
+                return True
+            else:
+                logging.error(f"{response.status_code} || {response.json()}")
+                return False
         else:
             return False
