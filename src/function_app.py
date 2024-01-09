@@ -68,18 +68,20 @@ def web_scraper_orchestrator(context: df.DurableOrchestrationContext) -> list:
     logging.info(f"Number of URLs to crawl: {len(task_list)}")
 
     logging.info("STARTING crawling of the website.")
-    results = []
+    blobnames = []
     parallel_tasks = [
         context.call_activity("web_scraper_activity", task) for task in task_list
     ]
-    results = yield context.task_all(parallel_tasks)
+    blobnames = yield context.task_all(parallel_tasks)
 
     logging.info("CRAWLING of the website COMPLETED.")
 
-    yield context.call_activity("search_index_runner", "vector")
+    search_creation_result = yield context.call_activity(
+        "search_index_runner", blobnames
+    )
 
     logging.info("Python orchestrator function completed.")
-    return results
+    return search_creation_result
 
 
 @app.activity_trigger(input_name="task")
@@ -101,8 +103,8 @@ def web_scraper_activity(task: tuple) -> str:
     return blob_name
 
 
-@app.activity_trigger(input_name="indextype")
-def search_index_runner(indextype: str) -> bool:
+@app.activity_trigger(input_name="blobnames")
+def search_index_runner(blobnames: list) -> bool:
     """
     Runs the search indexer.
     indextype: "search" or "vector"
