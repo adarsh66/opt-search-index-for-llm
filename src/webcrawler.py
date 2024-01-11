@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup
 from azure.storage.blob import BlobServiceClient
 import time
 from datetime import datetime
+import html2text
 
 
 class WebCrawler:
@@ -27,15 +28,36 @@ class WebCrawler:
         blob_name = f"{project_name}/{sub_url.replace(url, '').replace('/','_')}_{lastmod_formatted}.txt"
         return blob_name
 
-    def crawl_and_store(self, sub_url, container_name, blob_name):
+    def parse_html_bs4(self, html):
+        soup = BeautifulSoup(html, "html.parser")
+        return soup.get_text()
+
+    def parse_html_html2text(self, html):
+        h = html2text.HTML2Text()
+        h.ignore_links = True
+        h.ignore_images = True
+        h.ignore_emphasis = True
+        h.ignore_tables = True
+        h.ignore_anchors = True
+        return h.handle(html)
+
+    def parse_html(self, html, parser_lib="bs4"):
+        if parser_lib == "bs4":
+            return self.parse_html_bs4(html)
+        elif parser_lib == "html2text":
+            html_text = self.parse_html_bs4(html)
+            return self.parse_html_html2text(html_text).strip()
+        else:
+            raise ValueError("Parser library not supported.")
+
+    def crawl_and_store(
+        self, sub_url, container_name, blob_name, parser_lib="html2text"
+    ):
         # Send a GET request to the URL
         response = requests.get(sub_url)
 
-        # Parse the HTML content using BeautifulSoup
-        soup = BeautifulSoup(response.content, "html.parser")
-
-        # Extract the text content from the HTML
-        content = soup.get_text()
+        # Parse the HTML content using specified parser library
+        content = self.parse_html(response.content, parser_lib=parser_lib)
 
         # Create a blob client
         blob_client = self.get_blob_client(

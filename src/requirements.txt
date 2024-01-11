@@ -7,3 +7,4 @@ azure-functions-durable
 beautifulsoup4
 azure-storage-blob
 lxml
+html2text
