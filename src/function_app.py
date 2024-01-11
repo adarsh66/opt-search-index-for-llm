@@ -29,7 +29,7 @@ VECTOR_EMBEDDING_DIMENSION = os.getenv("VECTOR_EMBEDDING_DIMENSION")
 
 
 @app.schedule(
-    schedule="0 0 10 * * *", arg_name="myTimer", run_on_startup=True, use_monitor=False
+    schedule="0 0 10 * * *", arg_name="myTimer", run_on_startup=False, use_monitor=False
 )
 @app.durable_client_input(client_name="client")
 async def web_scraper_trigger(
