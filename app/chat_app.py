@@ -16,7 +16,7 @@ openai.api_version = "2023-08-01-preview"
 # Azure OpenAI setup
 openai.api_base = os.getenv("OPENAI_ENDPOINT")  # Add your OpenAI endpoint here
 openai.api_key = os.getenv("OPENAI_API_KEY")  # Add your OpenAI API key here
-deployment_id = "gpt-4"  # Add your deployment ID here
+deployment_id = os.getenv("OPENAI_DEPLOYMENT")  # Add your deployment ID here
 
 # Azure AI Search setup
 search_endpoint = os.getenv("AI_SEARCH_ENDPOINT")
@@ -35,7 +35,7 @@ topN = 5
 strictness = 3
 enforce_inscope = True
 SYSTEM_PROMPT = """
-You are an AI bot designed to be a HR service bot for Capitaland. 
+You are an customer service bot designed to answer questions regarding Telstra. 
 You must respond only from the data source provided. 
 If you do not know the answer, you can say 'I don't know'. Always be polite and helpful.
 You must be clear and concise in your answers. Answer in bullet point format where possible.
@@ -106,7 +106,7 @@ def get_chat_response(
                     "indexName": search_index_name,
                     "topNDocuments": topN,
                     "inScope": enforce_inscope,
-                    # "semanticConfiguration": "semantic-config-a0859498-994",
+                    "semanticConfiguration": "semantic-config-a0859498-994",
                     "roleInformation": role_information,
                     "strictness": strictness,
                     "queryType": queryType,
