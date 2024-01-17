@@ -2,7 +2,8 @@ import logging
 import azure.functions as func
 import datetime
 import azure.durable_functions as df
-from webcrawler import WebCrawler, get_sitemap_urls
+from webcrawler import WebCrawler, AzureBlobHelper
+from utils import get_sitemap_urls, compare_task_lists
 from aisearch_utils import AISearchIndexer
 import os
 
@@ -26,6 +27,8 @@ VECTOR_EMBEDDING_URI = os.getenv("VECTOR_EMBEDDING_URI")
 VECTOR_EMBEDDING_API_KEY = os.getenv("VECTOR_EMBEDDING_API_KEY")
 VECTOR_EMBEDDING_ID = os.getenv("VECTOR_EMBEDDING_ID")
 VECTOR_EMBEDDING_DIMENSION = os.getenv("VECTOR_EMBEDDING_DIMENSION")
+RUN_INDEXER = bool(os.getenv("RUN_INDEXER"))
+RESET_INDEXER = bool(os.getenv("RESET_INDEXER"))
 
 
 @app.schedule(
@@ -61,14 +64,39 @@ def web_scraper_orchestrator(context: df.DurableOrchestrationContext) -> list:
     Run the indexer after all the URLs have been crawled.
     """
     logging.info("Python orchestrator function started.")
+    sitemap_blob_name = f"{PROJECT_NAME}-sitemap/sitemap.csv"
+    blob_helper = AzureBlobHelper(storage_connection_string=STORAGE_CONNECTION)
+    cached_task_list = blob_helper.read_csv_blob(
+        container_name=CONTAINER_NAME, blob_name=sitemap_blob_name
+    )
+    logging.info(
+        f"Getting cached sitemap: {sitemap_blob_name}. Size = {len(cached_task_list)}"
+    )
 
-    logging.info(f"Gettnig URLs from sitemap: {URL}/sitemap.xml")
-    task_list = get_sitemap_urls(url=URL)
+    latest_task_list = get_sitemap_urls(url=URL)
+    logging.info(
+        f"Getting latest list of URLs from sitemap: {URL}/sitemap.xml. Size = {len(latest_task_list)}"
+    )
+
+    task_list, to_delete = compare_task_lists(latest_task_list, cached_task_list)
+
+    logging.info(f"Number of URLs to delete: {len(to_delete)}")
+    for sub_url, lastmod in to_delete:
+        blob_name = blob_helper.get_blob_name(
+            url=URL, sub_url=sub_url, lastmod=lastmod, project_name=PROJECT_NAME
+        )
+        blob_helper.delete_blob(container_name=CONTAINER_NAME, blob_name=blob_name)
+    blob_helper.write_csv_blob(
+        container_name=CONTAINER_NAME,
+        blob_name=sitemap_blob_name,
+        data=latest_task_list,
+    )
+
     task_list = task_list[:SAMPLE_SIZE] if SAMPLE_SIZE > 0 else task_list
     logging.info(f"Number of URLs to crawl: {len(task_list)}")
 
     logging.info("STARTING crawling of the website.")
-    blobnames = []
+    blobnames, search_creation_result = [], []
     parallel_tasks = [
         context.call_activity("web_scraper_activity", task) for task in task_list
     ]
@@ -81,7 +109,7 @@ def web_scraper_orchestrator(context: df.DurableOrchestrationContext) -> list:
     )
 
     logging.info("Python orchestrator function completed.")
-    return search_creation_result
+    return blobnames, search_creation_result
 
 
 @app.activity_trigger(input_name="task")
@@ -92,12 +120,16 @@ def web_scraper_activity(task: tuple) -> str:
     """
     url, lastmod = task
     logging.info(f"Crawling of URL STARTED. URL={url}")
-    crawler = WebCrawler(STORAGE_CONNECTION)
-    blob_name = crawler.get_blob_name(
+    blob_helper = AzureBlobHelper(storage_connection_string=STORAGE_CONNECTION)
+    crawler = WebCrawler()
+    blob_name = blob_helper.get_blob_name(
         url=URL, sub_url=url, lastmod=lastmod, project_name=PROJECT_NAME
     )
     crawler.crawl_and_store(
-        sub_url=url, container_name=CONTAINER_NAME, blob_name=blob_name
+        sub_url=url,
+        blob_helper=blob_helper,
+        container_name=CONTAINER_NAME,
+        blob_name=blob_name,
     )
     logging.info(f"Crawling of URL COMPLETED. URL={url}")
     return blob_name
@@ -120,7 +152,6 @@ def search_index_runner(blobnames: list) -> bool:
             vector_skillset_name=VECTOR_SKILLSET_NAME,
             api_key=SEARCH_API_KEY,
         )
-
         # Step 1 - Create the Data Source
         response = search_indexer.create_data_source_blob_storage(
             blob_connection=STORAGE_CONNECTION,
@@ -157,6 +188,12 @@ def search_index_runner(blobnames: list) -> bool:
             batch_size=SEARCH_INDEXER_BATCH_SIZE,
         )
         logging.info(f"Search Indexer status = {response}")
+
+        # Step 6 - Run the indexer, if config is set to True
+        if RUN_INDEXER == "True":
+            response = search_indexer.run_indexer(reset_flag=RESET_INDEXER)
+            logging.info(f"Search Indexer Run status = {response}")
+
         return True
     except Exception as e:
         logging.error(
