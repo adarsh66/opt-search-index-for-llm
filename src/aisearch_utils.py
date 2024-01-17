@@ -14,6 +14,7 @@ class AISearchIndexer:
         vector_skillset_name,
         api_key,
         api_version="2023-10-01-Preview",
+        # api_version="2023-11-01",
     ):
         self.search_service = search_service
         self.data_source_name = data_source_name
@@ -29,6 +30,7 @@ class AISearchIndexer:
         self.vector_search_config = self.generate_service_name("vector-search-config")
         self.vector_search_vectorizer = self.generate_service_name("vectorizer")
         self.semantic_config = self.generate_service_name("semantic-config")
+        self.endpoint = f"https://{self.search_service}.search.windows.net"
 
     def generate_service_name(self, service_name_prefix):
         # Generate a UUID
@@ -57,28 +59,36 @@ class AISearchIndexer:
                 "@odata.type": "#Microsoft.Azure.Search.NativeBlobSoftDeleteDeletionDetectionPolicy"
             },
         }
-        response = requests.post(
-            f"https://{self.search_service}.search.windows.net/datasources?api-version={self.api_version}",
+
+        response = requests.put(
+            f"{self.endpoint}/datasources('{self.data_source_name}')?api-version={self.api_version}",
             headers=self.headers,
             json=data_source_payload,
         )
-        if response.status_code == 201:
-            self.data_source = response.json()
+        if response.status_code in [200, 201, 204]:
+            # self.data_source = response.json()
             return True
         else:
-            logging.error(f"{response.status_code} || {response.json()}")
+            logging.error(f"ERROR: {response.status_code}")
             return False
 
     def check_data_source_exists(self):
         response = requests.get(
-            f"https://{self.search_service}.search.windows.net/datasources('{self.data_source_name}')?api-version={self.api_version}",
+            f"{self.endpoint}/datasources('{self.data_source_name}')?api-version={self.api_version}",
             headers=self.headers,
         )
         return response.status_code == 200
 
     def check_index_exists(self, index_name):
         response = requests.get(
-            f"https://{self.search_service}.search.windows.net/indexes('{index_name}')?api-version={self.api_version}",
+            f"{self.endpoint}/indexes('{index_name}')?api-version={self.api_version}",
+            headers=self.headers,
+        )
+        return response.status_code == 200
+
+    def check_indexer_exists(self):
+        response = requests.get(
+            f"{self.endpoint}/indexers('{self.indexer_name}')?api-version={self.api_version}",
             headers=self.headers,
         )
         return response.status_code == 200
@@ -264,18 +274,20 @@ class AISearchIndexer:
         if self.check_data_source_exists():
             if index_type == "search":
                 index_payload = self.create_search_index_payload()
+                index_name = self.search_index_name
             elif index_type == "vector":
                 index_payload = self.create_vector_index_payload(**kwargs)
-            response = requests.post(
-                f"https://{self.search_service}.search.windows.net/indexes?api-version={self.api_version}",
+                index_name = self.vector_index_name
+            response = requests.put(
+                f"{self.endpoint}/indexes('{index_name}')?api-version={self.api_version}",
                 headers=self.headers,
                 json=index_payload,
             )
-            if response.status_code == 201:
-                self.index = response.json()
+            if response.status_code in [200, 201, 204]:
+                # self.index = response.json()
                 return True
             else:
-                logging.error(f"{response.status_code} || {response.json()}")
+                logging.error(f"ERROR: {response.status_code}|| {response.text}")
                 return False
         else:
             return False
@@ -340,16 +352,16 @@ class AISearchIndexer:
                     "parameters": {},
                 },
             }
-            response = requests.post(
-                f"https://{self.search_service}.search.windows.net/skillsets?api-version={self.api_version}",
+            response = requests.put(
+                f"{self.endpoint}/skillsets('{self.vector_skillset_name}')?api-version={self.api_version}",
                 headers=self.headers,
                 json=skillset_payload,
             )
-            if response.status_code == 201:
-                self.skillset = response.json()
+            if response.status_code in [200, 201, 204]:
+                # self.skillset = response.json()
                 return True
             else:
-                logging.error(f"{response.status_code} || {response.json()}")
+                logging.error(f"ERROR: {response.status_code}")
                 return False
 
     def create_indexer(self, cache_storage_connection, batch_size=100):
@@ -376,16 +388,39 @@ class AISearchIndexer:
                     "storageConnectionString": cache_storage_connection,
                 },
             }
-            response = requests.post(
-                f"https://{self.search_service}.search.windows.net/indexers?api-version={self.api_version}",
+            response = requests.put(
+                f"{self.endpoint}/indexers('{self.indexer_name}')?api-version={self.api_version}",
                 headers=self.headers,
                 json=indexer_payload,
             )
-            if response.status_code == 201:
-                self.indexer = response.json()
+            if response.status_code in [200, 201, 204]:
+                # self.indexer = response.json()
                 return True
             else:
-                logging.error(f"{response.status_code} || {response.json()}")
+                logging.error(f"ERROR: {response.status_code}")
                 return False
         else:
             return False
+
+    def run_indexer(self, reset_flag=False):
+        if self.check_indexer_exists():
+            indexer_payload = {
+                "x-ms-client-request-id": str(uuid.uuid4()),
+            }
+            if reset_flag:
+                response = requests.post(
+                    f"{self.endpoint}/indexers('{self.indexer_name}')/search.reset?api-version={self.api_version}",
+                    headers=self.headers,
+                    json=indexer_payload,
+                )
+                assert response.status_code == 204, "Indexer reset failed."
+            response = requests.post(
+                f"{self.endpoint}/indexers('{self.indexer_name}')/search.run?api-version={self.api_version}",
+                headers=self.headers,
+                json=indexer_payload,
+            )
+            if response.status_code in [202]:
+                return True
+            else:
+                logging.error(f"{response.status_code}")
+                return False
