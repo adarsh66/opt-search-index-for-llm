@@ -1,0 +1,10 @@
+requests
+beautifulsoup4
+xmltodict
+pandas
+selenium
+langchain
+opentelemetry-distro
+openai
+html2text
+tiktoken
